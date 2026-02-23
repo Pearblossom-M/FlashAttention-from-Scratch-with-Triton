@@ -33,7 +33,7 @@ dB = A^T @ dC
 
 * `dA`、`dB` 分别表示损失对 A、B 的梯度：$\frac{\partial L}{\partial A}$ 和 $\frac{\partial L}{\partial B}$
 
-这个公式可以用微分法（利用乘积法则）+ Frobenius 内积表示梯度来推导，但记住结论就够用了。其中：
+这个公式可以用微分法 + Frobenius 内积推导，但记住结论就够用了。其中：
 
 - `A` 的形状：`[M, K]`，`B` 的形状：`[K, N]`
 - `C` 的形状：`[M, N]`，`dC` 的形状：`[M, N]`
