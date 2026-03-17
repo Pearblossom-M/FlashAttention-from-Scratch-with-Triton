@@ -60,7 +60,7 @@ dA = dB * α
 ```
 
 * 这是一个标量线性函数，因此$\frac{\partial B_{ij}}{\partial A_{ij}}$ = α
-* `dA` = $\frac{\partial L}{\partial A}$ = $\frac{\partial L}{\partial B} $$\frac{\partial B}{\partial A}$ = `dB * α`
+* `dA` = $\frac{\partial L}{\partial A}$ = $\frac{\partial L}{\partial B}$$\frac{\partial B}{\partial A}$ = `dB * α`
 
 **公式 4：reduction**
 
@@ -80,7 +80,7 @@ $\frac{\partial B_{i}}{\partial A_{ij}}$ = 1，所以：`dA_ij` = $\frac{\partia
 dA_i = sum_j dB_ij # A shape: [M,], B shape: [M, N]
 ```
 
-$\frac{\partial B_{ij}}{\partial A_{i}}$ = 1，所以：`dA_j` = $\sum_j \frac{\partial L}{\partial A_{i}}$ = $\sum_j \frac{\partial L}{\partial B_{ij}}$ $\frac{\partial B_{ij}}{\partial A_{i}}$ = $\sum_j$ `dB_ij`
+$\frac{\partial B_{ij}}{\partial A_{i}}$ = 1，所以：`dA_i` = $\sum_j \frac{\partial L}{\partial A_{i}}$ = $\sum_j \frac{\partial L}{\partial B_{ij}}$ $\frac{\partial B_{ij}}{\partial A_{i}}$ = $\sum_j$ `dB_ij`
 
 > 一个变量在 forward 中被用几次，它在 backward 中的梯度就要累加几次。或者说：当一个变量通过多条路径影响损失时，梯度就是这些路径贡献的和。
 
@@ -207,6 +207,9 @@ Backward 如果也想用同样的策略：
 - 但计算 dK/dV 就不行了：
   - 每个 K/V_block 会被多个 Q_blocks 用到
   - 所以需要**累加所有 Q_blocks 对这个 K/V_block 梯度的贡献**，这和 forward 的逻辑不同
+- 虽然可以通过**原子加（`tl.atomic_add`）**实现一个 kernel 在计算 dK/dV 的同时，累加dQ，但是，对于 Triton 而言，使用 `tl.atomic_add` 会让编译器难以进行极致优化，通常性能低于双 kernel 的方案。
+
+> 如果使用 CUDA，则可以使用单 kernel 的方案，因为 CUDA 可以通过更底层的优化（比如手写 PTX）更好的设计 Pipeline，掩盖原子加操作带来的延迟。
 
 **结论**：需要两个 kernel
 

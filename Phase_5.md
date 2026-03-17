@@ -105,7 +105,7 @@ def timing(run_fn, warmup=10, repeat=30):
 
     > 这有一点类似于 **Persistent Block** 的原理
 
-  * **长序列长度**：进入实现平台区
+  * **长序列长度**：进入平台区
 
     当序列长度足够大时：
 
@@ -738,7 +738,7 @@ Note that warp specialization is only supported on Blackwell GPUs and only works
 
 * **为什么 Triton 很难完全复现官方 Backward？**
 
-  官方 FlashAttention Backward 的性能优势，主要来自 **persistent thread blocks、warp specialization 等架构级调度优化**，而非算法本身。这些优化依赖对线程生命周期和 SM 常驻状态的精细控制，超出了 Triton 作为 kernel-level DSL 的设计边界。因此，Triton 实现可以逼近其算法效率，但难以在调度层面完全复现官方实现的极限性能。
+  官方 FlashAttention Backward 的性能优势，一方面来自 **persistent thread blocks、warp specialization 等架构级调度优化**，另一方面源于 kernel 设计方式，我们的 triton 实现采用**双 kernel** 设计，比官方的**单 kernel** 设计**多一次启动开销和数据加载开销**。这些优化依赖对线程生命周期、SM 常驻状态的精细控制和计算-访存 pipeline 的极致优化，超出了 Triton 作为 block-level DSL 的设计边界。因此，Triton 实现可以逼近其算法效率，但难以在调度层面完全复现官方实现的极限性能。
 
 * **为什么说当前性能已经“足够好”？**
 
@@ -746,7 +746,7 @@ Note that warp specialization is only supported on Blackwell GPUs and only works
 
 * **如果要更进一步，Triton 场景下是否可行？**
 
-  在 Triton 框架内，仍可能通过更激进的 kernel fusion 和配置搜索获得有限提升，但依赖 persistent blocks、warp 级角色分工或跨 kernel 常驻状态的优化并不具备可行性。换言之，进一步的大幅提升需要进入 CUDA/PTX 层级，不再是 Triton 的目标使用场景。
+  在 Triton 框架内，仍可能通过更激进配置搜索获得有限提升，但依赖 persistent blocks、warp 级角色分工或 kernel fusion 的优化并不具备可行性。换言之，进一步的大幅提升需要进入 CUDA/PTX 层级，不再是 Triton 的目标使用场景。
 
 > 在 Triton 的能力边界内，该实现已在可读性、可维护性与性能之间取得了接近最优的平衡。
 
@@ -760,7 +760,7 @@ Note that warp specialization is only supported on Blackwell GPUs and only works
 
 * **Auto-tune** 解耦性能与手工参数选择，避免 BLOCK/warp/stage 不匹配带来的“优化失真”
 * **TensorDescriptor + pre_hook** 让 tile 访存表达更规则，为后端触发更高效的数据搬运（如 TMA）创造条件
-* **计算流程重排**（复用并缓存 `delta`）减少冗余计算与不必要的张量加载，进一步缓解反向传播的寄存器与带宽压力。
+* **计算流程优化**（复用并缓存 `delta`）减少冗余计算与不必要的张量加载，进一步缓解反向传播的寄存器与带宽压力。
 
 与此同时，本章也刻意展示了两类“看似合理但无效”的思路：预转置 K 受限于显存读写成本，而 warp specialization 目前受硬件与 Triton 支持范围限制，尚难直接用于完整 FlashAttention（尤其 backward）。
 
