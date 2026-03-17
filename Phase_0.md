@@ -204,7 +204,7 @@ l_new = exp(m_old - m_new) × l_old + Σ exp(score_block - m_new)
 | **本质**     | 算法优先                           | **硬件感知 (Hardware-aware)**                                |
 | **代价**     | 显存占用高，计算速度慢             | 前向传播中几乎不增加 FLOPs，<br />反向传播通过 **recomputation** 用额外计算换取显存节省 |
 
-关于 **Recomputation**：为了省显存，FlashAttention 在反向传播时不读取前向传播的 P 矩阵（所以不用存储 P），而是根据已有的 $Q, K, V$ 重新算一遍。这听起来疯了，但在 GPU 上反而更快，这一点我们会在 Phase 4 中详细讲解。
+关于 **Recomputation**：为了省显存，不存储 P 矩阵，所以 FlashAttention 在反向传播时会根据已有的 $Q, K, V$ 重新算一遍。这听起来疯了，但在 GPU 上反而更快，这一点我们会在 Phase 4 中详细讲解。
 
 
 
