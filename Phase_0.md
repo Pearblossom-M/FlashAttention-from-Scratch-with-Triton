@@ -189,8 +189,6 @@ l_new = exp(m_old - m_new) × l_old + Σ exp(score_block - m_new)
 
 ### 0.2.4 为什么这解决了内存问题？
 
-* 每一行的 softmax 独立计算
-* 处理每一行时，可以将其分成小块（blocks）
 * 对每个 block 计算局部结果，用 online 公式更新统计量
 * **不需要存储整个中间矩阵**，只需要存储：
   * 当前的 m 和 l（每行两个标量）
