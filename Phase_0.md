@@ -90,22 +90,22 @@ GPU SRAM (fast)  ←→  HBM (slow)
 初始化 m_old = -∞, l_old = 0, o_old = 0向量 (o 始终维护的是"未归一化"的加权和，最后一步才除以 l 完成归一化)
  ↓
 看到 3:  
-	计算：m_new = max(m_old,3) = 3, 
-		 l_new = exp(-∞ - 3) × 0 + exp(3-3) = 1, 
-		 o_new = exp(3 - 3) × V_1 = V_1, (当前的临时输出)
-	更新：m_old = 3, l_old = 1, o_old = V_1
+	计算：m_new = max(m_old, 3) = 3, 
+		 l_new = exp(m_old - m_new) × l_old + exp(3 - 3) = 1, 
+		 o_new = exp(m_old - m_new) × o_old + exp(3 - 3) × V_1 = V_1, (当前的临时输出)
+	更新：m_old = m_new = 3, l_old = l_new = 1, o_old = o_new = V_1
  ↓		
 看到 1:  
-	计算：m_new = max(m_old,1) = 3, 
-		 l_new = exp(3-3) × l_old + exp(1-3) = 1.135, 
-		 o_new = exp(3 - 3) × V_1 + exp(1 - 3) × V_2 = V_1 + 0.135 × V_2, (修正并累加)
+	计算：m_new = max(m_old, 1) = 3, 
+		 l_new = exp(m_old - m_new) × l_old + exp(1 - 3) = 1.135, 
+		 o_new = exp(m_old - m_new) × o_old + exp(1 - 3) × V_2 = V_1 + 0.135 × V_2, (修正并累加)
 	更新：m_old = 3, l_old = 1.135, o_old = V_1 + 0.135 × V_2
  ↓		
 看到 2:  
-	计算：m_new = max(m_old,2) = 3, 
-		 l_new = exp(3-3) × l_old + exp(2-3) = 1.503, 
-		 o_new = exp(3 - 3) × (V_1 + 0.135 × V_2) + exp(2 - 3) × V_3 = V_1 + 0.135 × V_2 + 0.368 × V_3, (再次修正并累加)
-	更新：m_old = m_new = 3, l_old = l_new = 1.503, o_old = V_1 + 0.135 × V_2 + 0.368 × V_3
+	计算：m_new = max(m_old, 2) = 3, 
+		 l_new = exp(m_old - m_new) × l_old + exp(2 - 3) = 1.503, 
+		 o_new = exp(m_old - m_new) × o_old + exp(2 - 3) × V_3 = V_1 + 0.135 × V_2 + 0.368 × V_3, (再次修正并累加)
+	更新：m_old = 3, l_old = 1.503, o_old = V_1 + 0.135 × V_2 + 0.368 × V_3
  ↓
 最终归一化: output = o_old / l_old = (V_1 + 0.135 × V_2 + 0.368 × V_3) / 1.503
                                  = 0.665 × V_1 + 0.090 × V_2 + 0.245 × V_3
@@ -158,12 +158,12 @@ o_new = exp(m_old - m_new) × o_old + (exp(score_block - m_new) @ V_block)
 
 当最大值从 `m_old` 变成 `m_new` 时：
 
-- 所有基于 `m_old` 计算的 `exp(score - m_old)` 都需要重新基准
+- 所有基于 `m_old` 计算的 `exp(score - m_old)` 都需要重新校准
 - 修正系数就是 `exp(m_old - m_new)`
 
 **推导过程**：
 
-旧的分母相对于 m_old：
+旧的分母 `l_old` 基于 `m_old` 计算：
 
 ```
 l_old = Σ exp(old_scores - m_old)
@@ -182,7 +182,7 @@ l_old = Σ exp(old_scores - m_old)
 修正后的 `l_old` 再累加新数据就得到新的分母 `l_new`：
 
 ```
-exp(m_old - m_new) × l_old + Σ exp(score_block - m_new)
+l_new = exp(m_old - m_new) × l_old + Σ exp(score_block - m_new)
 ```
 
 输出的推导完全类似，只是多了与 V 的矩阵乘法。
