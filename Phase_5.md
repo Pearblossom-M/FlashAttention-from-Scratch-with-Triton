@@ -240,11 +240,11 @@ def flash_attention_forward(Q, K, V, is_causal):
 
 ------
 
-## 5.3 使用 TensorDescriptor
+## 5.3 使用 TMA
 
-### 5.3.1 什么是 TensorDescriptor ？
+### 5.3.1 什么是 TMA ？
 
-在讲解 TensorDescriptor 之前，我们先回顾一下传统的 triton 数据加载方式：
+在讲解 TMA 之前，我们先回顾一下传统的 triton 数据加载方式：
 
 ```python
 # 1. 先手动计算每个元素的位置
@@ -271,15 +271,37 @@ TMA 的主要作用有两点：
 - 加速**整块 tensor 数据**的传输 —— 从 HBM 到 Shared Memory 的**异步、高效**传输
 - 由**硬件根据预先描述好**的 tile 布局完成地址生成与数据搬运，从而减少动态地址计算指令和控制流对计算管线的干扰
 
-而截至目前在 triton 这一层，暴露给用户、能稳定表达并触发 TMA 的接口就是 `TensorDescriptor`，普通的 `tl.load` / `tl.make_block_ptr` 仍然属于以“指针 + 访问”为核心的访存模型，虽然编译器可能进行一定优化，但**并不等价于“保证走 TMA”**。
+而截至目前在 triton 这一层，暴露给用户、能稳定表达并触发 TMA 的接口就是 `TensorDescriptor` 和 `tl.make_tensor_descriptor`，普通的 `tl.load` / `tl.make_block_ptr` 仍然属于以“指针 + 访问”为核心的访存模型，虽然编译器可能进行一定优化，但**并不等价于“保证走 TMA”**。
 
 > TMA 要求搬运的是规则二维/多维 tile，并且希望形状、步幅、边界处理（padding/越界）在编译期尽可能明确；
 >
 > `TensorDescriptor` 把这些信息固定下来，降低了动态地址计算与控制流，从而让后端能合法、安全地使用 TMA。
 
-### 5.3.2 如何使用 TensorDescriptor ？
+### 5.3.2 `tl.make_tensor_descriptor` 简介
 
-首先在 python 层定义，按照顺序传入：矩阵本身，矩阵的形状，每个维度的 `stride`，搬运的每块数据的形状和越界访问的填充值。
+关于 `tl.make_tensor_descriptor` 的使用，大家可以参考：[triton.language.make_tensor_descriptor — Triton 文档](https://triton-lang.cn/main/python-api/generated/triton.language.make_tensor_descriptor.html)。
+
+`tl.make_tensor_descriptor` 的优势主要在于可以直接**在 kernel 内部**创建张量描述符，易于搭配 `Autotune`。但也会轻微增加内部指令开销，且可能会增加寄存器压力，影响复杂算子。
+
+另外需要注意，`tl.make_tensor_descriptor` 相比于 `TensorDescriptor` 会更严格一点，截至目前，前者仅支持 2-5 维张量，而后者都支持，考虑到 FlashAttention 中存在对一维张量的使用，本教程选择使用 `TensorDescriptor`。
+
+如果大家对 `tl.make_tensor_descriptor` 的实现方式感兴趣，可以参考 [FlashAttention-from-Scratch-with-Triton/code at main · Pearblossom-M/FlashAttention-from-Scratch-with-Triton](https://github.com/Pearblossom-M/FlashAttention-from-Scratch-with-Triton/tree/main/code) 的 `My_FlashAttention_optimized_v2.py` 和 `_flash_attention_kernel_optimized_v2.py` 两个文件。重点观察 3 个主要区别：
+
+* **不再使用** `pre hook` 函数
+
+* 在 kernel **内部创建**张量描述符，而非 host 侧
+
+* ```python
+  # TMA descriptors require a global memory allocation
+  def alloc_fn(size: int, alignment: int, stream: Optional[int]):
+      return torch.empty(size, device="cuda", dtype=torch.int8)
+  
+  triton.set_allocator(alloc_fn)
+  ```
+
+### 5.3.3 如何使用 TensorDescriptor ？
+
+首先在 host 侧定义，按照顺序传入：矩阵本身，矩阵的形状，每个维度的 `stride`，搬运的每块数据的形状和越界访问的填充值。
 
 然后，将定义好的 desc_q 传入 kernel。kernel 内部加载时传入数据块的起点即可。
 
@@ -287,7 +309,7 @@ TMA 的主要作用有两点：
 # 参考：https://github.com/triton-lang/triton/blob/main/python/triton/tools/tensor_descriptor.py
 from triton.tools.tensor_descriptor import TensorDescriptor
 
-# 1. python 层直接定义
+# 1. host 侧直接定义
 desc_q = TensorDescriptor(
     Q, shape=[B*H*S_q, D], strides=[D, 1], block_shape=[BLOCK_M, D], padding="zero"
 )
@@ -320,7 +342,7 @@ desc_q = TensorDescriptor(
 
 总之，4D 描述会引入两维“空维度”，让 **block/索引/形状处理**都更繁琐，而 **2D 展平**能直接把要用的块表达成 `[BLOCK_M, D]`。建议大家记住并使用这个小技巧！
 
-### 5.3.3 代码实现
+### 5.3.4 代码实现
 
 以 `flash_attention_forward` 为例，`flash_attention_backward` 同理。
 
@@ -516,7 +538,7 @@ def flash_attention_forward(Q, K, V, is_causal):
 
 > 注意：`pre_hook(nargs)` 的 `nargs` 里能拿到哪些字段取决于在 host 端调用 kernel 时传进去的 **所有 runtime 参数**以及本次 autotune 选中的 **meta 参数**
 
-### 5.3.4 实验结果
+### 5.3.5 实验结果
 
 <img src="./images/D_64_causal_fwd_bwd_TensorDescriptor.png" style="zoom:33%;" />
 
